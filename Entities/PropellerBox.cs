@@ -36,6 +36,7 @@ namespace Celeste.Mod.PandorasBox
 
         private Sprite flashOverlaySprite;
         private List<Sprite> chargeSprites;
+        private Sprite deathSprites;
 
         private Color flashUseColor;
         private Color flashRechargedColor;
@@ -53,6 +54,9 @@ namespace Celeste.Mod.PandorasBox
 
         public bool HasBoosted;
 
+        public bool isDestructible;
+        public bool isDestroyed;
+
         public PropellerBox(EntityData data, Vector2 offset) : base(data.Position + offset)
         {
             Depth = 100;
@@ -66,6 +70,8 @@ namespace Celeste.Mod.PandorasBox
             flashRechargedColor = ColorHelper.GetColor(data.Attr("flashChargeColor", "#5A1C1C"));
             glideMode = data.Attr("glideMode", "AfterUse");
             rechargeOnGround = data.Bool("rechargeOnGround", true);
+            
+            isDestructible = data.Bool("isDestructible", false);
 
             chargeSprites = new List<Sprite>();
 
@@ -78,6 +84,14 @@ namespace Celeste.Mod.PandorasBox
 
             flashOverlaySprite.Add("flash_overlay", "", 0.045f);
             flashOverlaySprite.Justify = new Vector2(0.5f, 1f);
+
+            Add(deathSprites = new Sprite(GFX.Game, $"objects/pandorasBox/propellerBox/{texture}/death"));
+            deathSprites.Justify = new Vector2(0.5f, 1f);
+            deathSprites.Add("death", "", 0.06f);
+            deathSprites.Visible = false;
+
+
+
 
             Add(Hold = new Holdable());
             Hold.PickupCollider = new Hitbox(16f, 22f, -8f, -16f);
@@ -99,6 +113,7 @@ namespace Celeste.Mod.PandorasBox
             updateChargeSpriteVisibility();
 
             base.Tag = Tags.TransitionUpdate;
+            isDestroyed = false;
         }
 
         private bool animationExists(string key)
@@ -114,7 +129,8 @@ namespace Celeste.Mod.PandorasBox
             string spritePath = $"objects/pandorasBox/propellerBox/{texture}/{spriteKey}";
             Sprite sprite;
 
-            if (animationExists(spritePath)) {
+            if (animationExists(spritePath))
+            {
                 sprite = new Sprite(GFX.Game, spritePath);
             }
             else
@@ -194,7 +210,7 @@ namespace Celeste.Mod.PandorasBox
             {
                 (data.Hit as DashSwitch).OnDashCollide(null, Vector2.UnitX * Math.Sign(Speed.X));
             }
-            
+
             if (Math.Abs(Speed.X) > 100f)
             {
                 ImpactParticles(data.Direction);
@@ -275,6 +291,30 @@ namespace Celeste.Mod.PandorasBox
 
         public override void Update()
         {
+            if (isDestructible && !isDestroyed)
+            {
+                foreach (SeekerBarrier seekerBarrier in Scene.Tracker.GetEntities<SeekerBarrier>())
+                {
+                    seekerBarrier.Collidable = true;
+                    bool shouldDestroy = CollideCheck(seekerBarrier);
+                    seekerBarrier.Collidable = false;
+                    if (shouldDestroy)
+                    {
+                        isDestroyed = true;
+                        Collidable = false;
+                        if (this.Hold.IsHeld)
+                        {
+                            Vector2 holderSpeed = Hold.Holder.Speed;
+                            Hold.Holder.Drop();
+                            Speed = holderSpeed * 0.333f;
+                            Input.Rumble(RumbleStrength.Medium, RumbleLength.Medium);
+                        }
+                        Add(new Coroutine(DestroyAnimationRoutine(), true));
+                        return;
+                    }
+                }
+            }
+
             if (boostDuration > 0)
             {
                 boostDuration -= Engine.DeltaTime;
@@ -344,7 +384,7 @@ namespace Celeste.Mod.PandorasBox
                     {
                         speedYMaxMove *= 0.5f;
                     }
-                    
+
                     if (Speed.Y < 0f)
                     {
                         speedXMaxMove *= 0.5f;
@@ -465,7 +505,7 @@ namespace Celeste.Mod.PandorasBox
                     changeChargeSpriteRate(1f);
                 }
             }
-            else if (OnGround()) 
+            else if (OnGround())
             {
                 changeChargeSpriteRate(0.4f);
             }
@@ -489,7 +529,7 @@ namespace Celeste.Mod.PandorasBox
             if (player.Speed.Y > BoostLaunchThreshold)
             {
                 player.Speed.Y = BoostLaunchSpeed;
-                
+
                 if (player.StateMachine.State == Player.StPickup)
                 {
                     player.StateMachine.State = Player.StNormal;
@@ -497,8 +537,9 @@ namespace Celeste.Mod.PandorasBox
 
                 HasBoosted = true;
                 boostDuration = 1.2f;
-                
-                if (glideMode == "AfterUse") {
+
+                if (glideMode == "AfterUse")
+                {
                     hold.SlowFall = true;
                 }
 
@@ -549,6 +590,20 @@ namespace Celeste.Mod.PandorasBox
             Add(interactibleHoldable);
 
             base.Added(scene);
+        }
+
+        private IEnumerator DestroyAnimationRoutine()
+        {
+            Audio.Play("event:/new_content/game/10_farewell/glider_emancipate", this.Position);
+            foreach (var sprite in chargeSprites)
+            {
+                sprite.Visible = false;
+            }
+            deathSprites.Visible = true;
+            deathSprites.Play("death", false, false);
+            yield return 1f;
+            base.RemoveSelf();
+            yield break;
         }
     }
 }
