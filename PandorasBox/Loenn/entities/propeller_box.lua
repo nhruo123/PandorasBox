@@ -34,6 +34,7 @@ propellerBox.placements = {
         maxCharges = 3,
         rechargeOnGround = true,
         glideMode = "AfterUse",
+        isDestructible = false,
     }
 }
 
